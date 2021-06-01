@@ -1,6 +1,6 @@
 module Main where
 
-import Lib
+import Sym
 
 main :: IO ()
-main = driver
+main = putStr (show (driver [Choice [Return (Num 3), Return (Num 4), Return (Num 6)], Raise]))

@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 6b0d2de2460c83487e184a0271b6ed5c59a86619695eb1b688aa52f23d566323
+-- hash: 2b09b79977fcca4e5dd76e49c17ad62750f9cd2b994e6a4398c41f8101897108
 
 name:           symex
 version:        0.1.0.0
@@ -28,6 +28,8 @@ source-repository head
 library
   exposed-modules:
       Lib
+      Sym
+      Symbolic
   other-modules:
       Paths_symex
   hs-source-dirs:

@@ -1,23 +1,22 @@
-module Symbolic
-    ( stepSym
-    ) where
+module Symbolic where
 
-import System.IO
-import Data.Char
 
-data Value = NumV Int | BoolV Bool | ClosV String Expr a | SymV Char Int
-
-data Constraint = LtConstr Expr Expr
-
-data Expr = Num Int
-            | Add Expr Expr
-            | Eq Expr Expr
-            | Id String
-
-data Cmd val :: * -> * where
-  Add_c   ::  val -> val -> Cmd val val
-  Lt_c   ::  val -> val -> Cmd val val
-  Fail   ::  String -> Cmd val a
+--import System.IO
+--import Data.Char
+--
+--data Value = NumV Int | BoolV Bool | ClosV String Expr a | SymV Char Int
+--
+--data Constraint = LtConstr Expr Expr
+--
+--data Expr = Num Int
+--            | Add Expr Expr
+--            | Eq Expr Expr
+--            | Id String
+--
+--data Cmd val :: * -> * where
+--  Add_c   ::  val -> val -> Cmd val val
+--  Lt_c   ::  val -> val -> Cmd val val
+--  Fail   ::  String -> Cmd val a
 
 ----newtype State = Environment -> Expr)
 --
