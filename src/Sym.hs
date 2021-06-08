@@ -67,20 +67,19 @@ eval(?e, ?nv)
 --           | App Expr Expr
 --           | Ident String
 
-
-data SymVar = SymV String | ConV String [SymVar]
-            deriving (Eq, Show)
-
-type Unifier  = [(String, SymVar)]
-
 data Term = Var String
           | Num Int
-          | Con String [Term]
+          | SymV String
+          | ConV String [Term]
+          deriving (Eq)
+
+type Unifier  = [(String, Term)]
 
 instance Show Term where
   show (Var a) = show a
   show (Num n) = show n
-  show (Con s xs) = show s ++ "[" ++ show xs ++ "]"
+  show (SymV s) = show s
+  show (ConV s xs) = show s ++ "[" ++ show xs ++ "]"
 
 data Constraint = Eq Term Term
                 | NEq Term Term
@@ -90,9 +89,10 @@ instance Show Constraint where
   show (NEq a b) = show a ++ "!=" ++ show b
 
 data IR = Choice [IR]
-        | Recurse [Term] String IR
+        | Recurse Term String IR
         | Guard [Constraint] IR
-        | Return (Either Term SymVar)
+        | Return Term
+        | Seq Term IR IR
         | Raise
 
 
@@ -101,6 +101,7 @@ instance Show IR where
   show (Choice (x:xs)) = show x ++ "+" ++ show xs
   show (Recurse xs vr tree) = "recurse" ++ show xs ++ " as " ++ show vr ++ ". " ++ show tree
   show (Guard cs tree) = "[" ++ show cs ++ "]" ++ show tree
+  show (Seq y e1 e2) = "seq " ++ show e1 ++ " as " ++ show y ++ " then " ++ show e2
   show (Return t) = "return " ++ show t
   show (Raise) = "error occured!"
 
@@ -113,15 +114,51 @@ data Prog = Prog [(String, [String], IR)]
 
 -- objective: implement a simple symbolic executor that does left-to-right breadth-first search of the branches of an IR
 
-step :: IR -> [IR]
-step (Choice xs) = xs
-step (Guard (Eq x y) cont) = case unify x y of
+--
+-- P = [ e = Num(i) ] . ...1
+--  + [ e = Add(e1, e2) ] . ...2
+--  + ...3
+--
+--  recurse e1 as NumV(i1) . M
+--
+--    [ e1 = Num(i) ] . ...1 ++ M
+--  + [ e1 = Add(e1, e2) ] . ...2 ++ M
+--  + ...3 ++ M
+--
+--
+---------------------------------
+--
+--P = [ e = Num(i) ] . ...1
+--  + [ e = Add(e1, e2) ] . ...2
+--  + ...3
+--
+--  recurse e1 as NumV(i1) . M
+--
+--  data IR = ...
+--
+--  data InterpState = Single IR
+--                   | Seq IR InterpState
+--
+--  step :: InterpState ->
+--  step (
+
+
+step :: Term -> IR -> IR -> [IR]
+step e eval (Choice xs) = xs
+step e eval (Guard [(Eq e y)] cont) = case unify x y of
                                   Just [] -> [cont]
                                   Just [u] -> [(substIR u cont), Raise]
                                   Nothing -> [Raise]
--- step (Guard cs cont) = [cont]
---step (Recurse xs x cont) = ???
-step (Return x) = [Return x] -- not necessary because ideally we'd like to stop here
+step e eval (Guard [(NEq e y)] cont) = case unify x y of
+                                  Nothing -> [cont]
+                                  Just [u] -> [(substIR u cont), Raise]
+                                  Just [] -> [Raise]
+step e eval (Guard cs cont) = [cont]
+step e eval (Recurse x y cont) = map (\branch -> Seq y branch cont) (step x eval eval)
+-- TODO: Seq e1 e2 case
+-- where we define seq as unfolding e1 until a result is returned and used for the evaluation of e2
+step e eval (Seq y e1 e2) =
+step e eval (Return x) = [Return x] -- not necessary because ideally we'd like to stop here
 step _ = [Raise]
 
 -- step :: IR -> [IR]
@@ -141,7 +178,7 @@ step _ = [Raise]
 
 -- aux functions for unification
 
-unify :: SymVar -> SymVar -> Maybe Unifier
+unify :: Term -> Term -> Maybe [(String, Term)]
 unify v1 v2 | v1 == v2 = return []
 unify (ConV s1 vs1) (ConV s2 vs2) | s1 == s2 =
     foldr (\ (v1, v2) m -> do
@@ -157,25 +194,24 @@ unify (SymV x)       t            | occurs x t = Nothing
 unify (SymV x)       v            = return [(x, v)]
 unify _              _            = Nothing
 
-occurs :: String -> SymVar -> Bool
-occurs x (SymV y)      | x == y = True
-occurs _ (SymV _)      = False
-occurs x (ConV _ vs)  =
-  foldl (\ b v -> b || occurs x v) False vs
+occurs :: String -> Term -> Bool
+--occurs x (SymV y)      | x == y = True
+--occurs _ (SymV _)      = False
+--occurs x (ConV _ vs)  =
+--  foldl (\ b v -> b || occurs x v) False vs
+occurs _ _ = False
 
-subst :: (String, SymVar) -> SymVar -> SymVar
-subst (y, v) (SymVar x)        = if x == y then v else (SymV x)
+subst :: (String, Term) -> Term -> Term
+subst (y, v) (SymV x)        = if x == y then v else (SymV x)
 subst (x, v) (ConV s args)  =
   ConV s (map (subst (x, v)) args)
 
-substIR :: (String, SymVar) -> IR -> IR
-substIR x (Choice xs) = Choice (\i -> map substIR x i)
+substIR :: (String, Term) -> IR -> IR
+substIR x (Choice xs) = Choice (map (\br -> (substIR x br) ) xs)
 substIR x (Guard cs cont) = Guard cs (substIR x cont)
-substIR x (Recurse xs n cont) = Recurse xs (substIR x cont)
-subst (y, v) (Return (Right (SymVar x))) = if x == y then v else (SymV x)
-substIR _ = [Raise]
-
-
+substIR x (Recurse xs n cont) = Recurse xs n (substIR x cont)
+substIR (y, v) (Return (SymV x)) = if x == y then (Return v) else (Return (SymV x))
+substIR x y = y
 
 -- driver functions
 
