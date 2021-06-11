@@ -67,35 +67,41 @@ eval(?e, ?nv)
 --           | App Expr Expr
 --           | Ident String
 
+-- thought process: After each successful unification we'd like to add a constraint to the constraint list.
+-- We want to also perform unification on pattern matches (i.e. if n fits the pattern of Num i)
+
 
 data Patt = Num | Add String String
-
+          deriving (Eq, Show)
 
 data Term = Var String
-          | Num Int
-          | SymV String
+          | NumV Int
+          | SymV [Constraint] String
           | ConV String [Term]
-          | FunV String Term Term
+          | FunV String String String
           deriving (Eq)
 
 type Unifier  = [(String, Term)]
 
 instance Show Term where
   show (Var a) = show a
-  show (Num n) = show n
-  show (SymV s) = show s
+  show (NumV n) = show n
+  show (SymV const s) = "Symbolic " ++ show const ++ " " ++ show s
   show (ConV s xs) = show s ++ "[" ++ show xs ++ "]"
   show (FunV op x y) = "applying " ++ show op ++ " to " ++ show x ++ " and " ++ show y
 
 data Constraint = Eq Term Term
                 | NEq Term Term
+                | Match Term Patt
+                deriving (Eq)
 
 instance Show Constraint where
-  show (Eq a b) = show a ++ "==" ++ show b
-  show (NEq a b) = show a ++ "!=" ++ show b
+  show (Eq a b) = show a ++ " == " ++ show b
+  show (NEq a b) = show a ++ " != " ++ show b
+  show (Match a b) = show a ++ " matches " ++ show b
 
 data IR = Choice [IR]
-        | Recurse Term String IR
+        | Recurse String String IR
         | Guard [Constraint] IR
         | Return Term
         | Seq String IR IR
@@ -151,24 +157,34 @@ data Prog = Prog [(String, [String], IR)]
 
 step :: Term -> IR -> IR -> [IR]
 step e eval (Choice xs) = xs
-step e eval (Guard [(Eq x y)] cont) = case unify x y of
+step e eval (Guard [(Eq v@(SymV const s) y)] cont) = case unify v y of
                                         Just [] -> [cont]
-                                        Just [u] -> [(substIR u cont), Raise]
+                                        Just [(s, t)] -> [(substIR (SymV (const ++ [Eq v y]) s) cont), Raise]
                                         Nothing -> [Raise]
-step e eval (Guard [(NEq x y)] cont) = case unify x y of
+
+-- in this case we'd just like to know if there are any constraints that "force" variable x to be pattern p
+step e eval (Guard [(Match x@(SymV const s) p)] cont) = case tryMatch x p of
+                                           True -> [substIR (SymV (const ++ [Match x p]) s) cont]
+                                           False -> [Raise]
+
+
+step e eval (Guard [(NEq v@(SymV const s) y)] cont) = case unify v y of
                                         Nothing -> [cont]
-                                        Just [u] -> [(substIR u cont), Raise]
+                                        Just [(s, t)] -> [(substIR (SymV (const ++ [Eq v y]) s) cont), Raise]
                                         Just [] -> [Raise]
+
 step e eval (Guard cs cont) = [cont]
-step e eval (Recurse x y cont) = map (\branch -> Seq y branch cont) (step x eval eval)
+step e eval (Recurse x y cont) = map (\branch -> Seq y branch cont) (step (SymV [] x) eval eval)
+
+
 
 -- TODO: test Seq e1 e2 case
 -- where we define seq as unfolding e1 until a result is returned and used for the evaluation of e2
 
 step e eval (Seq y e1 e2) = case stepped of
-                               [Return x] -> step e eval (substIR (y, x) e2)
+                               [Return x] -> step e eval (substRecur x y e2)
                                [Raise] -> [Raise]
-                               st -> foldr (\x acc -> acc ++ (step e eval (Seq y x e2))) [] st
+                               st -> foldr (\x acc -> acc ++ [Seq y x e2]) [] st
                                where stepped = step e eval e1
 
 step e eval (Return x) = [Return x] -- not necessary because ideally we'd like to stop here
@@ -202,30 +218,46 @@ unify (ConV s1 vs1) (ConV s2 vs2) | s1 == s2 =
           (zip vs1 vs2)
 
 unify (ConV _ _)    (ConV _ _)  = Nothing
-unify x@(ConV _ _)  y@(SymV _)   = unify y x
-unify (SymV x)       t            | occurs x t = Nothing
-unify (SymV x)       v            = return [(x, v)]
+unify x@(ConV _ _)  y@(SymV const _)   = unify y x
+unify (SymV const x)       t            | occurs x t = Nothing
+unify (SymV const x)       v            = return [(x, v)]
 unify _              _            = Nothing
 
 occurs :: String -> Term -> Bool
---occurs x (SymV y)      | x == y = True
---occurs _ (SymV _)      = False
+--occurs x (SymV const y)      | x == y = True
+--occurs _ (SymV const _)      = False
 --occurs x (ConV _ vs)  =
 --  foldl (\ b v -> b || occurs x v) False vs
 occurs x y = False
 
-subst :: (String, Term) -> Term -> Term
-subst (y, v) (SymV x)        = if x == y then v else (SymV x)
-subst (x, v) (ConV s args)  =
-  ConV s (map (subst (x, v)) args)
+tryMatch :: Term -> Patt -> Bool
+--occurs x (SymV const y)      | x == y = True
+--occurs _ (SymV const _)      = False
+--occurs x (ConV _ vs)  =
+--  foldl (\ b v -> b || occurs x v) False vs
+tryMatch x y = True
 
-substIR :: (String, Term) -> IR -> IR
+subst :: Term -> Term -> Term
+subst (SymV const1 x1) (SymV const2 x2)        = if x1 == x2 then (SymV const1 x1) else (SymV const2 x2)
+subst s@(SymV const1 s1) (ConV s2 args2)  =
+  ConV s2 (map (subst s) args2)
+
+substIR :: Term -> IR -> IR
 substIR x (Choice xs) = Choice (map (\br -> (substIR x br) ) xs)
 substIR x (Guard cs cont) = Guard cs (substIR x cont)
 substIR x (Recurse xs n cont) = Recurse xs n (substIR x cont)
-substIR (y, v) (Return (SymV x)) = if x == y then (Return v) else (Return (SymV x))
-substIR (y, v) (Return (Var x)) = if x == y then (Return v) else (Return (Var x))
+substIR v@(SymV const1 x1) (Return (SymV const x)) = if x == x1 then (Return v) else (Return (SymV const x))
+substIR v@(Var x1) (Return (Var x)) = if x1 == x then (Return v) else (Return (Var x))
 substIR x y = y
+
+substRecur :: Term -> String -> IR -> IR
+substRecur x y (Choice xs) = Choice (map (\br -> (substRecur x y br)) xs)
+substRecur x y(Guard cs cont) = Guard cs (substRecur x y cont)
+substRecur x y (Recurse xs n cont) = Recurse xs n (substRecur x y cont)
+substRecur v@(SymV const1 x1) y (Return (SymV const x)) = if x == y then (Return v) else (Return (SymV const x))
+substRecur v@(Var x1) y (Return (Var x)) = if x1 == y then (Return v) else (Return (Var x))
+substRecur x y z = z
+
 
 -- driver functions
 
