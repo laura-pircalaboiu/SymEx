@@ -174,7 +174,7 @@ step e eval (Guard [(NEq v@(SymV const s) y)] cont) = case unify v y of
                                         Just [] -> [Raise]
 
 step e eval (Guard cs cont) = [cont]
-step e eval (Recurse x y cont) = map (\branch -> Seq y branch cont) (step (SymV [] x) eval eval)
+step e eval (Recurse x y cont) = map (\branch -> Seq y branch cont) (step (SymV [] x) (Guard [(Eq (SymV [] "a") (NumV 3))] (Return (SymV [] "a"))) (Guard [(Eq (SymV [] "a") (NumV 3))] (Return (SymV [] "a"))))
 
 
 
@@ -267,3 +267,6 @@ driver _ [] = []
 driver e (x:xs) = (step e x x) ++ (driver e xs)
 
 
+runTimes :: Int -> Term -> [IR] -> [IR]
+runTimes 1 e eval = driver e eval
+runTimes n e eval = driver e (runTimes (n - 1) e eval)
