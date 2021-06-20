@@ -1,4 +1,7 @@
 module Sym where
+import Debug.Trace
+import Data.MultiSet as M
+
 
 {-
 
@@ -71,15 +74,28 @@ eval(?e, ?nv)
 -- We want to also perform unification on pattern matches (i.e. if n fits the pattern of Num i)
 
 
-data Patt = Num | Add String String
-          deriving (Eq, Show)
+data Patt = Num
+          | Add String String
+          | Lam String String
+          | App String String
+          deriving (Eq, Show, Ord)
 
 data Term = Var String
           | NumV Int
           | SymV [Constraint] String
           | ConV String [Term]
-          | FunV String String String
-          deriving (Eq)
+          | OpV String String String
+          | ClosV String String
+          deriving (Ord)
+
+instance Eq Term where
+  (Var a) == (Var b) | a == b = True
+  (NumV a) == (NumV b) | a == b = True
+  (SymV cons1 a) == (SymV cons2 b) | a == b && (bagEqual cons1 cons2) = True -- make bagequal function
+  (ConV a b) == (ConV c d) | a == c && b == d = True
+  (OpV o1 a b) == (OpV o2 c d) | o1 == o2 && ((a == c && b == d) || (a == d && b == c)) = True
+  (ClosV arg1 bod1) == (ClosV arg2 bod2) | arg1 == arg2 && bod1 == bod2 = True
+  _ == _ = False
 
 type Unifier  = [(String, Term)]
 
@@ -88,12 +104,14 @@ instance Show Term where
   show (NumV n) = show n
   show (SymV const s) = "Symbolic " ++ show const ++ " " ++ show s
   show (ConV s xs) = show s ++ "[" ++ show xs ++ "]"
-  show (FunV op x y) = "applying " ++ show op ++ " to " ++ show x ++ " and " ++ show y
+  show (OpV op x y) = "applying " ++ show op ++ " to " ++ show x ++ " and " ++ show y
+  show (ClosV arg body) = "fun (" ++ show arg ++ ") " ++ " (" ++ show body ++ ") "
+
 
 data Constraint = Eq Term Term
                 | NEq Term Term
                 | Match Term Patt
-                deriving (Eq)
+                deriving (Eq, Ord)
 
 instance Show Constraint where
   show (Eq a b) = show a ++ " == " ++ show b
@@ -106,7 +124,18 @@ data IR = Choice [IR]
         | Return Term
         | Seq String IR IR
         | Raise
+        | Thonk IR
+        deriving (Ord)
 
+instance Eq IR where
+  (Choice as) == (Choice bs) | (bagEqual as bs)  = True
+  (Recurse a b tree1) == (Recurse c d tree2) | a == c && b == d && tree1 == tree2 = True
+  (Guard cs1 tree1) == (Guard cs2 tree2) | (bagEqual cs1 cs2) && tree1 == tree2 = True
+  (Return a) == (Return b) | a == b = True
+  (Seq s1 tree1 tree2) == (Seq s2 tree3 tree4) | s1 == s2 && tree1 == tree3 && tree2 == tree4 = True
+  Raise == Raise = True
+  (Thonk a) == (Thonk b) | a == b = True
+  _ == _ = False
 
 instance Show IR where
   show (Choice []) = ""
@@ -116,6 +145,7 @@ instance Show IR where
   show (Seq y e1 e2) = "seq " ++ show e1 ++ " as " ++ show y ++ " then " ++ show e2
   show (Return t) = "return " ++ show t
   show (Raise) = "error occured!"
+  show (Thonk a) = "postpone eval of " ++ show a
 
 data Prog = Prog [(String, [String], IR)]
 
@@ -155,7 +185,7 @@ data Prog = Prog [(String, [String], IR)]
 --  step (
 
 
-step :: Term -> IR -> IR -> [IR]
+step :: Term -> [IR] -> IR -> [IR]
 step e eval (Choice xs) = xs
 step e eval (Guard [(Eq v@(SymV const s) y)] cont) = case unify v y of
                                         Just [] -> [cont]
@@ -174,8 +204,12 @@ step e eval (Guard [(NEq v@(SymV const s) y)] cont) = case unify v y of
                                         Just [] -> [Raise]
 
 step e eval (Guard cs cont) = [cont]
-step e eval (Recurse x y cont) = map (\branch -> Seq y branch cont) (step (SymV [] x) (Guard [(Eq (SymV [] "a") (NumV 3))] (Return (SymV [] "a"))) (Guard [(Eq (SymV [] "a") (NumV 3))] (Return (SymV [] "a"))))
 
+step e eval (Recurse x y cont) = Prelude.map (\branch -> Seq y branch cont) (driver (SymV [] x) eval eval)
+
+--trace ("eval: " ++ show eval) (
+--                                   where
+--                                      eval' = foldr (\br acc -> acc ++ [helperRec br]) [] eval
 
 
 -- TODO: test Seq e1 e2 case
@@ -204,6 +238,12 @@ step _ _ _ = [Raise]
 --checkCons (NEq a b):xs | a == b = False
 --checkCons (NEq a b):xs | a \= b = True && checkCons xs
 
+helperRec :: IR -> IR
+helperRec i@(Recurse x y cont) = Thonk i
+helperRec a = a
+
+bagEqual :: Ord a => [a] -> [a] -> Bool
+bagEqual c d = M.fromList c == M.fromList d
 
 -- aux functions for unification
 
@@ -240,10 +280,10 @@ tryMatch x y = True
 subst :: Term -> Term -> Term
 subst (SymV const1 x1) (SymV const2 x2)        = if x1 == x2 then (SymV const1 x1) else (SymV const2 x2)
 subst s@(SymV const1 s1) (ConV s2 args2)  =
-  ConV s2 (map (subst s) args2)
+  ConV s2 (Prelude.map (subst s) args2)
 
 substIR :: Term -> IR -> IR
-substIR x (Choice xs) = Choice (map (\br -> (substIR x br) ) xs)
+substIR x (Choice xs) = Choice (Prelude.map (\br -> (substIR x br) ) xs)
 substIR x (Guard cs cont) = Guard cs (substIR x cont)
 substIR x (Recurse xs n cont) = Recurse xs n (substIR x cont)
 substIR v@(SymV const1 x1) (Return (SymV const x)) = if x == x1 then (Return v) else (Return (SymV const x))
@@ -251,7 +291,7 @@ substIR v@(Var x1) (Return (Var x)) = if x1 == x then (Return v) else (Return (V
 substIR x y = y
 
 substRecur :: Term -> String -> IR -> IR
-substRecur x y (Choice xs) = Choice (map (\br -> (substRecur x y br)) xs)
+substRecur x y (Choice xs) = Choice (Prelude.map (\br -> (substRecur x y br)) xs)
 substRecur x y(Guard cs cont) = Guard cs (substRecur x y cont)
 substRecur x y (Recurse xs n cont) = Recurse xs n (substRecur x y cont)
 substRecur v@(SymV const1 x1) y (Return (SymV const x)) = if x == y then (Return v) else (Return (SymV const x))
@@ -261,12 +301,15 @@ substRecur x y z = z
 
 -- driver functions
 
-driver :: Term -> [IR] -> [IR]
-driver _ [] = []
+driver :: Term -> [IR] -> [IR] -> [IR]
+driver _ _ [] = []
 -- step the next interp in line
-driver e (x:xs) = (step e x x) ++ (driver e xs)
+driver e eval (x:xs) =  (step e eval x) ++ (driver e eval xs)
 
 
 runTimes :: Int -> Term -> [IR] -> [IR]
-runTimes 1 e eval = driver e eval
-runTimes n e eval = driver e (runTimes (n - 1) e eval)
+runTimes 1 e eval = driver e eval eval
+runTimes n e eval =  driver e eval (runTimes (n - 1) e eval)
+
+compareInterp :: Int -> Term -> [IR] -> [IR] -> Bool
+compareInterp n e a b = (runTimes n e a == runTimes n e b)
