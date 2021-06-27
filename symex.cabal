@@ -1,10 +1,8 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.33.0.
+-- This file has been generated from package.yaml by hpack version 0.34.4.
 --
 -- see: https://github.com/sol/hpack
---
--- hash: 2b09b79977fcca4e5dd76e49c17ad62750f9cd2b994e6a4398c41f8101897108
 
 name:           symex
 version:        0.1.0.0
@@ -35,8 +33,9 @@ library
   hs-source-dirs:
       src
   build-depends:
-      base >=4.7 && <5,
-      multiset >= 0.3.4.3
+      HUnit
+    , base >=4.7 && <5
+    , multiset
   default-language: Haskell2010
 
 executable symex-exe
@@ -47,8 +46,10 @@ executable symex-exe
       app
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      base >=4.7 && <5
-    , symex, multiset >= 0.3.4.3
+      HUnit
+    , base >=4.7 && <5
+    , multiset
+    , symex
   default-language: Haskell2010
 
 test-suite symex-test
@@ -60,6 +61,8 @@ test-suite symex-test
       test
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      base >=4.7 && <5
-    , symex , multiset >= 0.3.4.3
+      HUnit
+    , base >=4.7 && <5
+    , multiset
+    , symex
   default-language: Haskell2010

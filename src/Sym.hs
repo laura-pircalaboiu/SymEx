@@ -1,6 +1,6 @@
 module Sym where
 import Debug.Trace
-import Data.MultiSet as M
+import qualified Data.MultiSet as M
 
 
 {-

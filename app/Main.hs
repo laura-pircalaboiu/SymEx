@@ -2,10 +2,9 @@ module Main where
 
 
 import Sym
+import Test.HUnit
 
-eval = Choice [(Guard [(Match (SymV [] "a") (Num))] (Return (SymV [] "a"))), (Guard [(Match (SymV [] "a") (Add "i1" "i2"))] (Recurse "i1" "c" (Recurse "i2" "d" (Return (OpV "+" "d" "c")))))]
-eval2 = Choice [(Guard [(Match (SymV [] "a") (Num))] (Return (SymV [] "a"))), (Guard [(Match (SymV [] "a") (Add "i1" "i2"))] (Recurse "i1" "c" (Recurse "i2" "d" (Return (OpV "+" "c" "d")))))]
-evil = Choice [(Guard [(Match (SymV [] "a") (Num))] (Return (SymV [] "a"))), (Guard [(Match (SymV [] "a") (Add "i1" "i2"))] (Recurse "i1" "c" (Recurse "i2" "d" (Return (OpV "+" "c" "c")))))]
+eval12 = Choice [(Guard [(Match (SymV [] "a") (Num))] (Return (SymV [] "a"))), (Guard [(Match (SymV [] "a") (Add "i1" "i2"))] (Recurse "i1" "c" (Recurse "i2" "d" (Return (OpV "+" "c" "d")))))]
 
 eval' = Choice [(Guard [(Match (SymV [] "a") (Num))] (Return (SymV [] "a"))),
                 (Guard [(Match (SymV [] "a") (Add "i1" "i2"))]
@@ -14,6 +13,12 @@ eval' = Choice [(Guard [(Match (SymV [] "a") (Num))] (Return (SymV [] "a"))),
                       (Return (OpV "+" "d" "c"))))),
                 (Guard [(Match (SymV [] "a") (Lam "arg" "body"))] (Recurse "arg" "c" (Recurse "body" "d" (Return (ClosV "arg" "body")))))]
 
+eval'' = Choice [(Guard [(Match (SymV [] "a") (Num))] (Return (SymV [] "a"))),
+                (Guard [(Match (SymV [] "a") (Add "i1" "i2"))]
+                  (Recurse "i1" "c"
+                    (Recurse "i2" "d"
+                      (Return (OpV "+" "c" "d"))))),
+                (Guard [(Match (SymV [] "a") (Lam "arg" "body"))] (Recurse "arg" "c" (Recurse "body" "d" (Return (ClosV "arg" "body")))))]
 
 main :: IO ()
 --main = putStr (show (driver (SymV [] "a") [(Guard [(Eq (SymV [] "a") (NumV 3))] (Return (SymV [] "a")))]))
@@ -24,8 +29,12 @@ main :: IO ()
 --                                           (Guard [(Match (SymV [] "a") (Add "i1" "i2"))] (Recurse "i1" "c" (Recurse "i2" "d" (Return (FunV "+" "d" "c")))))]),
 --                                           (Choice [(Guard [(Match (SymV [] "a") (Num))] (Return (SymV [] "a"))),
 --                                           (Guard [(Match (SymV [] "a") (Add "i1" "i2"))] (Recurse "i1" "c" (Recurse "i2" "d" (Return (FunV "+" "c" "c")))))])]))
+main = putStr (show (runTimes 3 (SymV [] "a") [eval12]))
 
-main = putStr (show (compareInterp 3 (SymV [] "a") [eval2] [eval]))
+
+
+
+
 
 
 
